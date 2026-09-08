@@ -1,0 +1,51 @@
+# Servizi di appoggio per lo sviluppo locale.
+# Nessuno dei due richiede un Dockerfile: le immagini esistono già.
+#   docker compose up -d      avvia in background
+#   docker compose ps         cosa sta girando
+#   docker compose logs -f    segue i log
+#   docker compose down       ferma (i volumi restano)
+
+services:
+  # Finto server di posta: riceve SMTP sulla 1025 e mostra tutto su web sulla 8025.
+  # Non inoltra niente all'esterno: le mail restano qui dentro.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: erp-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # interfaccia web -> http://localhost:8025
+      - "1025:1025" # SMTP, dove il codice invia
+    environment:
+      MP_MAX_MESSAGES: 5000 # oltre questa soglia cancella le più vecchie
+      MP_DATABASE: /data/mailpit.db # senza questo le mail stanno in RAM
+    volumes:
+      - mailpit_data:/data
+
+  # Database: ci vivono sia i checkpoint di LangGraph sia le tabelle ERP.
+  postgres:
+    image: postgres:17
+    container_name: erp-postgres
+    restart: unless-stopped
+    ports:
+      # 5433 fuori perché sul Mac c'è già un PostgreSQL nativo (/Library/PostgreSQL) sulla 5432.
+      # Dentro la rete Docker gli altri servizi useranno comunque host "postgres" porta 5432.
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp # solo sviluppo locale: non esposto fuori dal Mac
+      POSTGRES_DB: erp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Serve dopo, quando worker e web dipenderanno da postgres:
+    # con questo possono aspettare che accetti connessioni, non solo che sia partito.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d erp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# I volumi dichiarati qui sopra vanno anche elencati qui, altrimenti Docker non li crea.
+# Senza volumi, "docker compose down" cancellerebbe database e mail.
+volumes:
+  mailpit_data:
+  postgres_data:
