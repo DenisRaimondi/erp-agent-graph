@@ -1,16 +1,22 @@
 [project]
 name = "erp-agent-graph"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agente LangGraph che estrae ordini dalle email, li fa approvare da un umano e li scrive a database"
 readme = "README.md"
 authors = [
     { name = "DenisRaimondi", email = "denis.raimondi@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+    "langgraph>=1.2.11",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+]
 
 [project.scripts]
-erp-agent-graph = "erp_agent_graph:main"
+erp-agent-graph = "erp_agent_graph.dispatcher:main"
+mailpit-check = "erp_agent_graph.services.mailpit:main"
 
 [build-system]
 requires = ["uv_build>=0.12.8,<0.13.0"]
@@ -20,5 +26,24 @@ build-backend = "uv_build"
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "rich>=15.0.0",
     "ruff>=0.16.6",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+# E/W pycodestyle · F pyflakes · I import ordinati · UP sintassi moderna · B trappole comuni
+select = ["E", "W", "F", "I", "UP", "B"]

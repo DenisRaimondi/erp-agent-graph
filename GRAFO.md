@@ -2,55 +2,71 @@
 
 Prototipo: **solo il ramo ordine**. Il ticket è previsto dal disegno ma non implementato (vedi *Estensioni previste*).
 
+**Un thread per mail**: `thread_id` = ID Mailpit del messaggio. Il polling sta **fuori** dal grafo.
+
+## Dispatcher (fuori dal grafo)
+
+Codice deterministico, niente LLM, niente stato. Gira in loop dentro un container.
+
+```mermaid
+flowchart LR
+    loop([loop ogni N secondi]) --> unread[mailpit: GET /api/v1/search?query=is:unread]
+    unread -->|nessuna mail| loop
+    unread -->|per ogni mail| invoke[graph.invoke<br/>thread_id = ID della mail]
+    invoke --> loop
+```
+
+## Grafo ordine (un run per mail)
+
 ```mermaid
 flowchart TD
-    START([START]) --> poll[poll_mailbox<br/>Mailpit API · deterministico]
-    poll -->|nessuna mail nuova| END1([END])
-    poll -->|Send per ogni mail| classify
+    START([START]) --> classify[classify_mail<br/>LLM · structured output<br/>intenti + confidenza]
 
-    subgraph fanout [fan-out parallelo · 1 ramo per mail]
-        classify[classify_mail<br/>LLM · structured output<br/>intenti + confidenza]
-        classify -->|nessun ordine| discard[mark_irrelevant<br/>deterministico]
-        classify -->|ordine| extract[extract_order<br/>LLM · structured output<br/>cliente, righe, qty, date]
-        extract --> validate[validate_order<br/>deterministico · cliente esiste?<br/>articoli esistono? discrepanze]
-    end
+    classify -->|nessun ordine| discard[mark_irrelevant<br/>deterministico]
+    classify -->|ordine| extract[extract_order<br/>LLM · structured output<br/>cliente, righe, qty, date]
 
-    discard --> collect
-    validate --> collect[collect_pending<br/>reducer · lista da_approvare]
-    collect --> notify[send_digest<br/>via Mailpit · N ordini da approvare]
-    notify --> review{{human_review<br/>INTERRUPT · checkpointer Postgres<br/>accetta / modifica / scarta}}
+    extract --> validate[validate_order<br/>deterministico · cliente esiste?<br/>articoli esistono? discrepanze]
+    validate --> review{{human_review<br/>INTERRUPT · checkpointer Postgres<br/>accetta / modifica / scarta}}
 
     review -->|scarta| rejected[log_rejected<br/>deterministico]
     review -->|accetta / modifica| create[create_order<br/>deterministico · scrive a DB]
     create --> propose[propose_next_action<br/>LLM · legge stato calcolato<br/>propone: conferma? spedisci?]
-    propose --> END2([END])
-    rejected --> END2
+
+    discard --> END([END])
+    rejected --> END
+    propose --> END
 ```
 
 ## Note
 
-- `collect_pending` è l'unica chiave con reducer (`Annotated[list, operator.add]`); tutto il resto è overwrite.
+- Il grafo **non sa che esiste una casella di posta**: il suo input è *una* mail. Si testa passandogli una mail finta, senza rete.
 - `validate_order` produce le discrepanze come dato nello stato — `propose_next_action` le legge, non le ricalcola.
 - `classify_mail` restituisce una **lista di intenti**, non un booleano, anche se il prototipo instrada solo `ordine`: così il ticket si aggiunge senza toccare il nodo.
-- La chat "mentre il grafo è sospeso" non è in questo diagramma: è un secondo grafo (o thread separato) che legge lo stesso DB. Da aggiungere dopo.
+- Un solo interrupt pendente per thread → il resume è `Command(resume=valore)`, senza mappa di id.
+- La lista "ordini da approvare" **non è un nodo**: è una query su `orders` in stato `da_approvare`, fatta dalla web app.
 
 ## Estensioni previste (fuori dal prototipo)
 
-- **Ramo ticket**: una mail può produrre ordine e ticket insieme. Secondo `Send` da `classify_mail`, chiavi di stato separate (`ordini_pending`, `ticket_pending`), secondo interrupt con ruolo *assistenza*. Escluso ora per non gonfiare il prototipo.
+- **Ramo ticket**: una mail può produrre ordine e ticket insieme. Secondo `Send` da `classify_mail`, chiavi di stato separate (`ordini_pending`, `ticket_pending`), secondo interrupt con ruolo *assistenza*. Attenzione: due interrupt pendenti nello stesso thread richiedono la mappa `{interrupt_id: valore}`.
+- **Digest via mail**: job separato che interroga `orders` e manda un riepilogo. Fuori dal grafo.
+- **Webhook Mailpit** al posto del polling.
 - **Chat sullo stato sospeso**: secondo grafo che legge lo stesso DB.
 
 ## Decisioni prese
 
 - Prototipo limitato al **ramo ordine**.
+- **`thread_id` = ID Mailpit della mail.** Un thread per mail, sospensioni indipendenti.
+- **`poll_mailbox` fuori dal grafo**, in un dispatcher: un nodo gira già dentro un thread e non può crearne altri.
+- **`collect_pending` rimosso** e **`send_digest` fuori dal grafo**: con un thread per mail non esiste un punto in cui i rami convergono.
 - **Approvazioni sequenziali**, niente approvazione parallela multi-ruolo sullo stesso oggetto.
 - **Claim/lock sul task rimandato**: la race esiste solo con due resume simultanei sullo stesso thread.
+- **Dispatcher come loop in un container** (`restart: unless-stopped`), non cron.
 
 ## Da decidere
 
-- **`thread_id` = message-id della mail** → `poll_mailbox` esce dal grafo e diventa un dispatcher che lancia un run per mail. Non ancora applicato al diagramma.
-- **Idempotenza del polling**: marcatura su Mailpit vs tabella `processed_messages`.
-- **`collect_pending` potrebbe essere superfluo**: il reducer aggrega già da solo.
+- **Idempotenza**: `GET /api/v1/message/{ID}` marca la mail come letta da solo. Se il processo muore dopo la lettura e prima di `create_order`, quella mail esce dalla coda delle non lette. Serve una tabella di stato, o basta che `thread_id = ID` renda il riprocesso innocuo?
 - **`propose_next_action` non ha consumatori**: mail di risposta, riga a DB per la chat, o si toglie.
+- Modello LLM e client (su `triage-mail` era DeepSeek).
 
 ## Verificato sui sorgenti LangGraph
 
@@ -58,3 +74,16 @@ flowchart TD
 - Forma corretta: `Command(resume={interrupt_id: valore})`. Si può rispondere a un interrupt per volta; l'altro resta pendente.
 - Con **un solo interrupt pendente** basta `Command(resume=valore)`.
 - Rami paralleli che scrivono **chiavi diverse** non confliggono: è il caso normale del fan-out. Il rischio è solo il resume simultaneo sullo stesso thread.
+- `langgraph.json` serve solo per il deploy su LangGraph Platform: qui non serve.
+
+## Verificato sull'API Mailpit
+
+| Cosa | Chiamata |
+|---|---|
+| Non lette | `GET /api/v1/search?query=is:unread` → `messages`, `messages_count` |
+| Tutte | `GET /api/v1/messages?limit=N` → include il flag `Read` |
+| Corpo | `GET /api/v1/message/{ID}` → `Text`, `HTML`, `Attachments`, `Date` ⚠️ **marca la mail come letta** |
+| Marca / smarca | `PUT /api/v1/messages` body `{"IDs": [...], "Read": true}` |
+| Svuota | `DELETE /api/v1/messages` |
+
+Campi della lista: `ID`, `From{Address,Name}`, `To[]`, `Subject`, `Created`, `Read`, `Snippet`, `Size`, `Attachments`.
