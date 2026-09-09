@@ -32,3 +32,6 @@ class Email(BaseModel):
     # GET /api/v1/message/{ID}, which returns "Text" and "HTML".
     body: str = ""
     html: str | None = None
+
+    def to_prompt(self) -> str:
+        return f"From: {self.sender}\nSubject: {self.subject}\nBody: {self.body}HTML: {self.html}"

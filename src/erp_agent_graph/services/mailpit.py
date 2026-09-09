@@ -4,6 +4,8 @@ import httpx
 
 from erp_agent_graph.models.email import Email
 
+logger = logging.getLogger(__name__)
+
 
 class MailpitService:
     def __init__(self, http_client: httpx.Client) -> None:
@@ -14,9 +16,9 @@ class MailpitService:
 
         response.raise_for_status()
 
-        logging.info(f"Response from Mailpit: {response.text}")
-
         messages = response.json()["messages"]
+
+        logger.debug("Mailpit: %d mail non lette", len(messages))
 
         emails = [Email.model_validate(m) for m in messages]
 
@@ -30,5 +32,7 @@ class MailpitService:
         httpMessage = response.json()
 
         body_message = httpMessage.get("Text") or httpMessage.get("HTML") or ""
+
+        logger.debug("Mailpit: corpo di %s, %d caratteri", email_id, len(body_message))
 
         return body_message
