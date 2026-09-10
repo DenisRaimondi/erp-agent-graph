@@ -12,6 +12,7 @@ from psycopg_pool import ConnectionPool
 
 from erp_agent_graph.context import Context
 from erp_agent_graph.graph import builder
+from erp_agent_graph.services.customer_repository import CustomerRepository
 from erp_agent_graph.services.mailpit import MailpitService
 from erp_agent_graph.state import PartialState
 
@@ -55,8 +56,6 @@ def main():
         extra_body={"thinking": {"type": "disabled"}},
     )
 
-    context = Context(llm_model=llm_model)
-
     with (
         httpx.Client(base_url=BASE_URL) as http_client,
         ConnectionPool(
@@ -65,6 +64,9 @@ def main():
             kwargs={"autocommit": True, "row_factory": dict_row},
         ) as checkpointer_pool,
     ):
+        context = Context(
+            llm_model=llm_model, customer_repository=CustomerRepository(checkpointer_pool)
+        )
         mailpit_service = MailpitService(http_client)
 
         saver = PostgresSaver(checkpointer_pool)
