@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from erp_agent_graph.models.order_line import OrderLine
+
 OrderStatus = Literal["confermato", "evaso", "annullato"]
 
 
@@ -34,3 +36,8 @@ class Order(BaseModel):
     status: OrderStatus
     total_amount: Decimal
     created_at: datetime
+
+    # Le righe non arrivano dalla stessa query della testata: class_row mappa una
+    # riga in un oggetto, quindi il repository le carica a parte e le assegna qui.
+    # Default vuoto perche' spesso della testata serve solo l'intestazione.
+    lines: list[OrderLine] = []
