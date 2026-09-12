@@ -1,0 +1,44 @@
+# Cancello prima del commit: ruff per lo stile, pyright per i tipi.
+#
+#   uv run pre-commit install        una volta, aggancia il git hook
+#   uv run pre-commit run --all-files   per lanciarlo a mano su tutto
+#
+# Nessun hook riscrive i file: se qualcosa non va il commit si ferma e la
+# correzione la fai tu. Per farli correggere da soli, aggiungere --fix a ruff
+# e togliere --check a ruff-format.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Stessa versione del ruff nel progetto: due versioni diverse danno
+    # due verdetti diversi sullo stesso file.
+    rev: v0.16.6
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+      - id: ruff-format
+        name: ruff (formattazione)
+        args: [--check]
+
+  - repo: local
+    hooks:
+      # Pyright gira sul progetto intero, non sui file passati: un tipo cambiato
+      # in un file rompe quelli che lo usano, e quelli non sono nel commit.
+      - id: pyright
+        name: pyright (tipi)
+        # Il binario del venv, non "uv run": pre-commit mette da parte le modifiche
+        # non in commit, e uv, vedendosi un pyproject diverso, riscrive uv.lock
+        # sotto i piedi dell'hook, che fallisce con "files were modified".
+        entry: .venv/bin/pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-yaml
+      # Il repo ha un .env fuori dal versionamento: questo e' il paracadute.
+      - id: detect-private-key
