@@ -20,30 +20,83 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    START([START]) --> classify[classify_mail<br/>LLM · structured output<br/>intenti + confidenza]
+    START([START]) --> classify[classify<br/>LLM · structured output<br/>intenti + confidenza]
 
-    classify -->|nessun ordine| discard[mark_irrelevant<br/>deterministico]
-    classify -->|ordine| extract[extract_order<br/>LLM · structured output<br/>cliente, righe, qty, date]
+    classify -->|nessun ordine| END1([END])
+    classify -->|ordine| ec[extract_customer<br/>LLM + 3 tool sui clienti<br/>id + motivo, oppure nessuno]
 
-    extract --> validate[validate_order<br/>deterministico · cliente esiste?<br/>articoli esistono? discrepanze]
-    validate --> review{{human_review<br/>INTERRUPT · checkpointer Postgres<br/>accetta / modifica / scarta}}
+    ec --> cc{{conferma_cliente<br/>INTERRUPT<br/>sceglie / crea / scarta}}
 
-    review -->|scarta| rejected[log_rejected<br/>deterministico]
-    review -->|accetta / modifica| create[create_order<br/>deterministico · scrive a DB]
-    create --> propose[propose_next_action<br/>LLM · legge stato calcolato<br/>propone: conferma? spedisci?]
+    cc -->|scarta| END2([END])
+    cc -->|cliente scelto| eo
+    cc -->|crea| nuovo[crea_cliente<br/>deterministico · scrive anagrafica]
 
-    discard --> END([END])
-    rejected --> END
-    propose --> END
+    nuovo -->|partita IVA gia' censita| cc
+    nuovo -->|creato| eo[extract_order<br/>LLM + 2 tool sul catalogo<br/>righe, qty, date]
+
+    eo --> validate[validate_order<br/>deterministico · codici a catalogo?<br/>giacenze? discrepanze]
+    validate --> co{{conferma_ordine<br/>INTERRUPT<br/>corregge codici e quantita'}}
+
+    co -->|scarta| END3([END])
+    co -->|conferma| create[create_order<br/>deterministico · scrive ordine e righe]
+    create --> END4([END])
 ```
+
+**Sequenziale, non parallelo.** `extract_order` gira **dopo** che il cliente e' confermato:
+cosi' mette nel prompt lo storico d'acquisto di quel cliente, e le mail vaghe ("le solite
+guarnizioni", "la misura piccola") si sciolgono da sole invece di finire sul tavolo di chi
+revisiona. E' l'unica dipendenza vera fra i due rami, ed e' il motivo per cui non corrono
+in parallelo.
+
+**Un solo interrupt pendente per volta**, quindi il resume e' `Command(resume=valore)`
+senza la mappa `{interrupt_id: valore}`.
+
+### Il ciclo su crea_cliente
+
+`crea_cliente` rientra in `conferma_cliente` solo quando la scrittura non e' andata:
+partita IVA gia' di un altro cliente, tipicamente. Chi revisiona rivede il modulo con
+scritto perche' non e' passato e i dati che aveva gia' digitato.
+
+Il nodo **non solleva eccezioni**: cattura e mette l'errore nello stato. Il valore di un
+resume resta legato al task che l'ha consumato -- se il nodo esplode, rilanciarlo rilegge
+la stessa partita IVA duplicata e il thread e' piantato per sempre.
+
+### Chiavi di stato, e chi le scrive
+
+| chiave | scritta da |
+|---|---|
+| `email`, `verdict` | `classify` |
+| `customer_choice` | `extract_customer` |
+| `confirmed_customer_id` | `conferma_cliente`, `crea_cliente` |
+| `anagrafica_da_creare`, `errore_anagrafica` | `conferma_cliente`, `crea_cliente` |
+| `extracted_order` | `extract_order`, `conferma_ordine` |
+| `discrepancies` | `validate_order` |
+| `created_order_id` | `create_order` |
+
+### Cosa risponde chi revisiona
+
+```
+# conferma_cliente
+{"azione": "scelto" | "crea" | "scarta",
+ "customer_id": int | None,      # con "scelto"
+ "anagrafica": {...} | None}     # con "crea"
+
+# conferma_ordine
+{"conferma": bool,
+ "customer_reference": str | None,
+ "lines": [{"article_code", "quantity", "requested_date"}, ...]}
+```
+
+Una voce di `lines` per riga, nello stesso ordine. **Codice vuoto = riga scartata**: e'
+l'unico modo di scartarne una, perche' senza codice non puo' diventare una riga d'ordine.
 
 ## Note
 
 - Il grafo **non sa che esiste una casella di posta**: il suo input è *una* mail. Si testa passandogli una mail finta, senza rete.
-- `validate_order` produce le discrepanze come dato nello stato — `propose_next_action` le legge, non le ricalcola.
+- `validate_order` produce le discrepanze come dato nello stato — chi revisiona le legge, non le ricalcola.
 - `classify_mail` restituisce una **lista di intenti**, non un booleano, anche se il prototipo instrada solo `ordine`: così il ticket si aggiunge senza toccare il nodo.
-- Un solo interrupt pendente per thread → il resume è `Command(resume=valore)`, senza mappa di id.
-- La lista "ordini da approvare" **non è un nodo**: è una query su `orders` in stato `da_approvare`, fatta dalla web app.
+- Un solo interrupt pendente per thread → il resume è `Command(resume=valore)`, senza mappa di id. È una conseguenza del grafo sequenziale: con due rami paralleli servirebbe `{interrupt_id: valore}`.
+- La lista "ordini da approvare" **non è un nodo**, e non è nemmeno una tabella: sono i thread del checkpointer fermi su un interrupt. A database un ordine ci finisce solo quando è stato approvato — niente stato `da_approvare`, niente righe provvisorie.
 
 ## Estensioni previste (fuori dal prototipo)
 
@@ -65,8 +118,8 @@ flowchart TD
 ## Da decidere
 
 - **Idempotenza**: `GET /api/v1/message/{ID}` marca la mail come letta da solo. Se il processo muore dopo la lettura e prima di `create_order`, quella mail esce dalla coda delle non lette. Serve una tabella di stato, o basta che `thread_id = ID` renda il riprocesso innocuo?
-- **`propose_next_action` non ha consumatori**: mail di risposta, riga a DB per la chat, o si toglie.
-- Modello LLM e client (su `triage-mail` era DeepSeek).
+- **`propose_next_action` è stato tolto**: non aveva consumatori.
+- ~~Modello LLM e client~~: DeepSeek, `deepseek-v4-pro`, via `langchain-deepseek`. Non supporta `response_format` json: l'output strutturato passa da `ToolStrategy` o da `with_structured_output(method="function_calling")`.
 
 ## Verificato sui sorgenti LangGraph
 
