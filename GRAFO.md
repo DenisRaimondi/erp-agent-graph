@@ -1,5 +1,15 @@
 # erp-agent-graph — flusso intake ordini
 
+> **Questo documento descrive il flusso bersaglio, non quello implementato.**
+>
+> Su `main` oggi girano i primi due nodi: `classify` e `extract_customer`. Tutto il
+> resto del disegno qui sotto — conferma del cliente, estrazione delle righe d'ordine,
+> validazione, conferma dell'ordine, scrittura a database — è progettato e motivato,
+> ma **non è ancora codice**. Gli interrupt di human-in-the-loop non esistono nel
+> grafo compilato.
+>
+> Per sapere cosa fa il progetto adesso, vedi il [README](README.md).
+
 Prototipo: **solo il ramo ordine**. Il ticket è previsto dal disegno ma non implementato (vedi *Estensioni previste*).
 
 **Un thread per mail**: `thread_id` = ID Mailpit del messaggio. Il polling sta **fuori** dal grafo.
