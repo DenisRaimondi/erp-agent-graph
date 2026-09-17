@@ -16,8 +16,19 @@ la parte d'ingresso senza far inventare niente al modello.
                  └───────────┘                  └─────┘
                        │ new_order_request
                        ▼
+              ┌──────────────────┐
+              │ extract_customer │
+              └──────────────────┘
+                       │
+                       ▼
+             ┌────────────────────┐   scartata    ┌─────┐
+             │  confirm_customer  │──────────────▶│ END │
+             │     ⏸ INTERRUPT    │               └─────┘
+             └────────────────────┘
+                       │ cliente confermato
+                       ▼
               ┌──────────────────┐        ┌─────┐
-              │ extract_customer │───────▶│ END │
+              │  extract_order   │───────▶│ END │
               └──────────────────┘        └─────┘
 ```
 
@@ -31,6 +42,20 @@ ricerca per email esatta, per dominio, per ragione sociale. Il prompt gli chiede
 il minor numero di strumenti possibile e gli dice esplicitamente che **assegnare il cliente
 sbagliato è peggio che non assegnarlo**: se non è sicuro restituisce `None`.
 
+**`confirm_customer`** — qui il grafo **si ferma**. `interrupt()` mette davanti a una persona
+la mail, il cliente proposto e il motivo per cui l'agente lo propone; il run termina, lo stato
+resta nel checkpointer. Si riprende con `Command(resume={"customer_id": ...})`, anche da un
+altro processo e a distanza di giorni. Senza cliente confermato si va a `END`: una mail
+scartata non costa la chiamata per estrarre righe che nessuno vuole.
+
+**`extract_order`** — un sotto-agente con due strumenti sul catalogo: verifica di un codice
+esplicito e ricerca per descrizione. Produce un `ExtractedOrder` con le righe, le quantità e
+le date. Nel prompt riceve lo **storico d'acquisto del cliente confermato**, ed è quello che
+gli permette di sciogliere le mail vaghe: *"mandaci le solite: 150 guarnizioni e 300 fascette"*
+esce come `ART-1120 × 150` e `ART-0087 × 300`. Su una mail in inglese con il codice storpiato
+(`ART 1120`) lo normalizza da solo, e riporta il numero d'ordine del cliente (`PO-90114`)
+quando c'è.
+
 **Il dispatcher sta fuori dal grafo.** È codice deterministico: ogni 60 secondi chiede a
 Mailpit le mail non lette, ne scarica il corpo e invoca il grafo una volta per mail, usando
 l'ID del messaggio come `thread_id`. Niente LLM, niente stato.
@@ -38,10 +63,11 @@ l'ID del messaggio come `thread_id`. Niente LLM, niente stato.
 Lo stato di ogni run è persistito su **Postgres** con il checkpointer ufficiale di LangGraph,
 quindi ogni mail ha la sua storia riprendibile.
 
-**Cosa non fa:** non estrae le righe d'ordine, non chiede conferma a un umano e non scrive
-nulla nelle tabelle ERP. Lo schema (6 tabelle) e i dati di esempio ci sono e sono applicati,
-ma nessun ordine viene creato dal grafo. Il disegno completo del flusso, con le parti ancora
-da costruire e il perché delle scelte, sta in [GRAFO.md](GRAFO.md).
+**Cosa non fa ancora:** non sceglie l'indirizzo di spedizione e **non scrive nulla nelle
+tabelle ERP**. Lo schema (6 tabelle) e i dati di esempio ci sono e sono applicati, ma l'ordine
+estratto vive solo nello stato del grafo: a database ci finirà quando ci sarà `create_order`,
+e solo dopo una seconda conferma umana. Il disegno completo del flusso, con le parti ancora da
+costruire e il perché delle scelte, sta in [GRAFO.md](GRAFO.md).
 
 ## Qualche decisione, e il motivo
 
