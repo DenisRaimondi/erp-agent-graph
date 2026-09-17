@@ -16,3 +16,7 @@ class State(TypedDict):
 
 class PartialState(TypedDict):
     email: Email
+
+
+class CustomerDecision(TypedDict):
+    customer_id: int

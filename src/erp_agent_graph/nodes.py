@@ -3,7 +3,9 @@ import logging
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.constants import END
 from langgraph.runtime import Runtime
+from langgraph.types import interrupt
 
 from erp_agent_graph.context import Context
 from erp_agent_graph.models.customer_choice import CustomerChoice
@@ -11,7 +13,7 @@ from erp_agent_graph.models.email import Email
 from erp_agent_graph.models.extracted_order import ExtractedOrder
 from erp_agent_graph.models.order_line import OrderLine
 from erp_agent_graph.models.verdict import Verdict
-from erp_agent_graph.state import State
+from erp_agent_graph.state import CustomerDecision, State
 from erp_agent_graph.tools.articles import find_article_by_code, search_by_description
 from erp_agent_graph.tools.customers import (
     find_customer_by_domain,
@@ -113,9 +115,9 @@ def extract_order(state: State, runtime: Runtime[Context]) -> dict:
 
     orders_history: list[OrderLine] = []
 
-    if customer_choice.id:
+    if customer_choice.customer_id:
         orders_history = runtime.context.order_repository.get_last_n_orders_lines_by_customer(
-            customer_choice.id, 20
+            customer_choice.customer_id, 20
         )
 
     orders_history_text = "\n".join([x.to_prompt() for x in orders_history])
@@ -129,8 +131,20 @@ def extract_order(state: State, runtime: Runtime[Context]) -> dict:
 
 
 def confirm_customer(state: State, runtime: Runtime[Context]) -> dict:
+    email: Email = state["email"]
+    customer_choice: CustomerChoice = state["customer_choice"]
 
-    return {}
+    decision: CustomerDecision = interrupt(
+        email.model_dump(mode="json") | customer_choice.model_dump(mode="json")
+    )
+
+    return {"confirmed_customer_id": decision.get("customer_id")}
+
+
+def route_from_confirm_customer(state: State) -> str:
+    if state["confirmed_customer_id"] is None:
+        return END
+    return "extract_order"
 
 
 # def extract_shipping_address(state: State, runtime: Runtime[Context]) -> dict:
