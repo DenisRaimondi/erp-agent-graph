@@ -2,14 +2,14 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-AddressKind = Literal["sede", "spedizione", "fatturazione"]
+AddressKind = Literal["headquarters", "shipping", "billing"]
 
 
 class CustomerAddress(BaseModel):
-    """Indirizzo di un cliente. Rispecchia la tabella `customer_addresses`.
+    """A customer address. Mirrors the `customer_addresses` table.
 
-    Un ordine si consegna a un indirizzo, non a un'azienda: per questo
-    `orders.shipping_address_id` punta qui e non a `customers`.
+    An order is delivered to an address, not to a company: that is why
+    `orders.shipping_address_id` points here and not at `customers`.
     """
 
     id: int

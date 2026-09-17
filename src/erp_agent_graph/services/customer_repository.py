@@ -1,7 +1,7 @@
 from erp_agent_graph.models.customer import Customer
 from erp_agent_graph.services.base_repository import BaseRepository
 
-# Su questi domini l'aggancio non ha senso: sono condivisi da chiunque.
+# Matching on these domains makes no sense: anyone can have an address there.
 DOMINI_PUBBLICI = frozenset(
     {
         "gmail.com",
@@ -33,17 +33,17 @@ class CustomerRepository(BaseRepository):
         )
 
     def find_by_domain(self, email: str) -> Customer | None:
-        """Il cliente agganciato al dominio dell'email, se e' uno solo.
+        """The customer matching the email domain, when there is exactly one.
 
         Riceve l'email intera e ne ricava il dominio: chi chiama non deve pensarci.
-        Restituisce None anche quando i clienti sono piu' di uno, perche' un
-        ordine attribuito al cliente sbagliato e' peggio di uno non attribuito.
+        Returns None when more than one customer matches too, because an order
+        attributed to the wrong customer is worse than one left unattributed.
         """
         domain = email.rpartition("@")[2].lower()
         if not domain or domain in DOMINI_PUBBLICI:
             return None
 
-        # LIMIT 2, non 1: due righe bastano a sapere che e' ambiguo, senza leggerle tutte.
+        # LIMIT 2, not 1: two rows are enough to know it is ambiguous, without reading all.
         candidati = self._get_all(
             Customer,
             "SELECT DISTINCT customers.* FROM customers\n"

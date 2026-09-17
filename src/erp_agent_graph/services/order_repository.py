@@ -6,11 +6,11 @@ class OrderRepository(BaseRepository):
     def get_last_n_orders_lines_by_customer(
         self, customer_id: int, limit: int = 30
     ) -> list[OrderLine]:
-        """Le righe degli ordini piu' recenti di un cliente.
+        """The lines of a customer's most recent orders.
 
-        Servono a dare al modello un riferimento su cosa compra abitualmente:
-        quando la mail e' vaga ("le solite guarnizioni") o il codice e' storpiato,
-        lo storico dice quali articoli sono plausibili per quel cliente.
+        They give the model a reference on what this customer usually buys:
+        when the email is vague ("the usual gaskets") or the code is mangled, the
+        history tells which articles are plausible for that customer.
         """
         return self._get_all(
             OrderLine,

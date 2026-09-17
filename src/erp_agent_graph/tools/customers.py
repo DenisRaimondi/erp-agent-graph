@@ -7,9 +7,9 @@ from erp_agent_graph.models.customer import Customer
 
 @tool
 def find_customer_by_email(email: str) -> Customer | None:
-    """Cerca il cliente censito con esattamente questo indirizzo email.
+    """Find the registered customer with exactly this email address.
 
-    Provalo per primo: se trova qualcosa, l'identificazione e' certa.
+    Try this one first: when it finds something, the identification is certain.
     """
     repo = get_runtime(Context).context.customer_repository
     return repo.find_by_email(email)
@@ -17,11 +17,11 @@ def find_customer_by_email(email: str) -> Customer | None:
 
 @tool
 def find_customer_by_domain(email: str) -> Customer | None:
-    """Cerca il cliente a partire dal dominio dell'indirizzo email.
+    """Find the customer from the domain of the email address.
 
-    Usalo quando find_customer_by_email non trova nulla: in ambito aziendale un
-    indirizzo nuovo su un dominio gia' noto e' quasi sempre la stessa azienda.
-    Restituisce None se il dominio non e' censito o se corrisponde a piu' clienti.
+    Use it when find_customer_by_email finds nothing: in business, a new address
+    on an already known domain is almost always the same company. Returns None
+    when the domain is unknown or matches more than one customer.
     """
     repo = get_runtime(Context).context.customer_repository
     return repo.find_by_domain(email)
@@ -29,15 +29,15 @@ def find_customer_by_domain(email: str) -> Customer | None:
 
 @tool
 def search_customers_by_name(name: str) -> list[Customer]:
-    """Cerca clienti per ragione sociale, anche parziale, ignorando maiuscole.
+    """Search customers by company name, partial matches included, case-insensitive.
 
-    Usalo quando ne' l'indirizzo ne' il dominio danno un risultato, provando con
-    il nome dell'azienda letto dalla firma, dall'oggetto o dal corpo della mail.
-    Se non trovi nulla, riprova con una parte piu' corta del nome:
+    Use it when neither the address nor the domain returns anything, with the
+    company name read from the signature, the subject or the body of the email.
+    If nothing comes back, try again with a shorter part of the name:
     "Rossi Impianti Srl" -> "Rossi Impianti" -> "Rossi".
 
-    Puo' restituire piu' candidati: scegline uno solo se il resto della mail lo
-    conferma, altrimenti lascia decidere a una persona.
+    It may return several candidates: pick one only if the rest of the email
+    confirms it, otherwise leave the decision to a person.
     """
     repo = get_runtime(Context).context.customer_repository
     return repo.search_by_name(name)

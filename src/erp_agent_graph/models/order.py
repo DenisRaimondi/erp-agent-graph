@@ -10,23 +10,23 @@ OrderStatus = Literal["confermato", "evaso", "annullato"]
 
 
 class Order(BaseModel):
-    """Testata dell'ordine. Rispecchia la tabella `orders`.
+    """Order header. Mirrors the `orders` table.
 
-    Modello di sola LETTURA: `id`, `order_date`, `total_amount` e `created_at`
-    li assegna il database. Per creare un ordine si passano i valori espliciti al
-    repository, invece di costruire un `Order` con dei campi finti.
+    READ-only model: `id`, `order_date`, `total_amount` and `created_at` are
+    assigned by the database. To create an order the explicit values are passed to
+    the repository, instead of building an `Order` with made-up fields.
 
-    Un ordine arriva qui solo quando e' valido: il cliente e' identificato e le
-    discrepanze sono state risolte dall'umano. Quello che e' ancora incompleto
-    vive nello stato del grafo, non in questa tabella.
+    An order gets here only once it is valid: the customer is identified and the
+    discrepancies have been resolved by a person. Whatever is still incomplete
+    lives in the graph state, not in this table.
     """
 
     id: int
-    # ID Mailpit della mail di origine, e thread_id del checkpointer.
+    # Mailpit id of the source email, and the checkpointer thread_id.
     source_email_id: str
-    # Il mittente come l'ha scritto lui, anche se l'aggancio e' passato dal dominio.
+    # The sender as they wrote it, even when the match went through the domain.
     sender_email: str
-    # Il riferimento usato dal cliente ("Ordine 2026/0447"), se l'ha indicato.
+    # The reference the customer uses ("Ordine 2026/0447"), when they state one.
     customer_reference: str | None = None
 
     customer_id: int
@@ -37,7 +37,7 @@ class Order(BaseModel):
     total_amount: Decimal
     created_at: datetime
 
-    # Le righe non arrivano dalla stessa query della testata: class_row mappa una
-    # riga in un oggetto, quindi il repository le carica a parte e le assegna qui.
-    # Default vuoto perche' spesso della testata serve solo l'intestazione.
+    # Lines do not come from the header query: class_row maps one row onto one
+    # object, so the repository loads them separately and assigns them here.
+    # Empty by default because the header alone is often all that is needed.
     lines: list[OrderLine] = []

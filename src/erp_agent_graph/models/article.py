@@ -4,11 +4,11 @@ from pydantic import BaseModel
 
 
 class Article(BaseModel):
-    """Articolo a catalogo. Rispecchia la tabella `articles`.
+    """Catalogue article. Mirrors the `articles` table.
 
-    `unit_price` e' `Decimal` e non `float`: psycopg restituisce `Decimal` per le
-    colonne `numeric`, e su un prezzo l'aritmetica binaria dei float introduce
-    errori che si vedono in fattura, non nei test.
+    `unit_price` is a `Decimal` and not a `float`: psycopg returns `Decimal` for
+    `numeric` columns, and on a price the binary arithmetic of floats introduces
+    errors that show up on an invoice, not in the tests.
     """
 
     code: str

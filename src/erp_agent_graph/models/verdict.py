@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class Verdict(BaseModel):
-    """Represents the classification verdict of an email, including the email ID, topic, and confidence score."""
+    """Represents the classification verdict of an email,
+    including the email ID, topic, and confidence score."""
 
     topic: list[Literal["new_order_request", "quote_request", "ticket", "spam", "general_info"]] = (
         Field(description="The topic of the email")

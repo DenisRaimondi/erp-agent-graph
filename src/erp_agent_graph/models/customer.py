@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class Customer(BaseModel):
-    """Anagrafica cliente. Rispecchia la tabella `customers`."""
+    """Customer master data. Mirrors the `customers` table."""
 
     id: int
     code: str

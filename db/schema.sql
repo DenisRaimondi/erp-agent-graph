@@ -1,12 +1,12 @@
--- Modulo ordini di vendita dell'ERP.
+-- Sales order module of the ERP.
 --
--- Principio: questo database e' il sistema di verita' e deve essere sempre coerente.
--- Niente righe provvisorie, niente NULL di comodo. Quello che e' incompleto vive
--- fuori di qui, nello stato del grafo sospeso sull'interrupt; nell'ERP si scrive
--- solo quando l'ordine e' valido e ha un cliente.
+-- Principle: this database is the system of record and must always be consistent.
+-- No provisional rows, no NULLs of convenience. Whatever is incomplete lives
+-- outside of here, in the state of the graph suspended on its interrupt; the ERP
+-- is written only once an order is valid and has a customer.
 --
--- Applicazione (il volume Postgres esiste gia', quindi docker-entrypoint-initdb.d
--- non verrebbe eseguito):
+-- To apply it (the Postgres volume already exists, so docker-entrypoint-initdb.d
+-- would not run):
 --   docker compose exec -T postgres psql -U erp -d erp < db/schema.sql
 
 BEGIN;
@@ -18,20 +18,20 @@ DROP TABLE IF EXISTS customer_emails;
 DROP TABLE IF EXISTS articles;
 DROP TABLE IF EXISTS customers;
 
--- ---------------------------------------------------------------- anagrafiche
+-- ------------------------------------------------------------- master data
 
 CREATE TABLE customers (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    code           text NOT NULL UNIQUE,          -- codice cliente dell'ERP
+    code           text NOT NULL UNIQUE,          -- ERP customer code
     name           text NOT NULL,
     vat_number     text NOT NULL UNIQUE,          -- partita IVA
     payment_terms  text NOT NULL,                 -- es. "60 gg d.f."
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
--- Un cliente scrive da piu' indirizzi. Tabella separata perche' e' anche il posto
--- dove il sistema impara: quando l'umano associa un mittente sconosciuto a un
--- cliente, qui nasce una riga e dal giro dopo l'aggancio e' automatico.
+-- One customer writes from several addresses. A separate table because it is also
+-- where the system learns: when a person attaches an unknown sender to a customer,
+-- a row is born here and from the next email on the match is automatic.
 CREATE TABLE customer_emails (
     email        text PRIMARY KEY,
     customer_id  bigint NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
@@ -43,7 +43,7 @@ CREATE INDEX customer_emails_customer_idx ON customer_emails (customer_id);
 CREATE TABLE customer_addresses (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     customer_id  bigint NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
-    kind         text NOT NULL CHECK (kind IN ('sede', 'spedizione', 'fatturazione')),
+    kind         text NOT NULL CHECK (kind IN ('headquarters', 'shipping', 'billing')),
     street       text NOT NULL,
     postal_code  text NOT NULL,
     city         text NOT NULL,
@@ -62,19 +62,19 @@ CREATE TABLE articles (
     stock_qty        integer NOT NULL DEFAULT 0
 );
 
--- --------------------------------------------------------------------- ordini
+-- ------------------------------------------------------------------- orders
 
 CREATE TABLE orders (
     id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
-    -- Tracciabilita' verso la mail di origine. E' anche il thread_id del
-    -- checkpointer: mail, ordine e stato del grafo condividono l'identificatore.
-    -- UNIQUE = l'idempotenza la garantisce il database, non il codice.
+    -- Traceability back to the source email. It is also the checkpointer
+    -- thread_id: email, order and graph state share the same identifier.
+    -- UNIQUE = idempotency is guaranteed by the database, not by the code.
     source_email_id      text NOT NULL UNIQUE,
-    -- Il mittente come l'ha scritto lui, anche quando l'aggancio al cliente
-    -- e' passato dal dominio o da una decisione umana.
+    -- The sender as they wrote it, even when the match to the customer went
+    -- through the domain or through a human decision.
     sender_email         text NOT NULL,
-    -- Il riferimento che usa il cliente ("Ordine 2026/0447"), se l'ha indicato.
+    -- The reference the customer uses ("Ordine 2026/0447"), when they state one.
     customer_reference   text,
 
     customer_id          bigint NOT NULL REFERENCES customers (id),
@@ -83,7 +83,7 @@ CREATE TABLE orders (
     order_date           date NOT NULL DEFAULT current_date,
     status               text NOT NULL DEFAULT 'confermato'
                          CHECK (status IN ('confermato', 'evaso', 'annullato')),
-    -- Somma delle righe, congelata sul documento.
+    -- Sum of the lines, frozen on the document.
     total_amount         numeric(14, 4) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
     created_at           timestamptz NOT NULL DEFAULT now()
 );
@@ -97,16 +97,16 @@ CREATE TABLE order_lines (
     line_no          integer NOT NULL CHECK (line_no > 0),
 
     article_code     text NOT NULL REFERENCES articles (code),
-    -- Descrizione, unita' di misura e prezzo sono COPIATI dall'articolo al
-    -- momento dell'ordine, non letti con una join. Se domani cambia il listino,
-    -- gli ordini di ieri devono restare come sono stati fatti: un ordine e' un
-    -- documento storico, non una vista sui dati correnti.
+    -- Description, unit of measure and price are COPIED from the article when the
+    -- order is written, not read with a join. If the price list changes tomorrow,
+    -- yesterday's orders must stay as they were placed: an order is a historical
+    -- document, not a view over current data.
     description      text NOT NULL,
     unit_of_measure  text NOT NULL,
     unit_price       numeric(12, 4) NOT NULL CHECK (unit_price >= 0),
 
     quantity         integer NOT NULL CHECK (quantity > 0),
-    -- Calcolata da Postgres: non puo' andare fuori sincrono con i suoi addendi.
+    -- Computed by Postgres: it cannot drift out of sync with its own operands.
     line_total       numeric(16, 4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
 
     requested_date   date,
