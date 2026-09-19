@@ -41,3 +41,16 @@ class MailRepository(BaseRepository):
             """,
             (status, thread_id),
         )
+
+    def list_by_status(self, status: MailStatus) -> list[InboundMail]:
+        """The register, newest first, for one status: the web app's queue."""
+        return self._get_all(
+            InboundMail,
+            """
+            SELECT *
+            FROM inbound_mails
+            WHERE status = %s
+            ORDER BY received_at DESC
+            """,
+            (status,),
+        )
