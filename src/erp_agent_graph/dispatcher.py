@@ -4,7 +4,6 @@ import time
 
 import httpx
 from dotenv import load_dotenv
-from langchain_deepseek import ChatDeepSeek
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg import Connection
 from psycopg.rows import DictRow, dict_row
@@ -12,8 +11,11 @@ from psycopg_pool import ConnectionPool
 
 from erp_agent_graph.context import Context
 from erp_agent_graph.graph import builder
+from erp_agent_graph.llm import SoftToolChoiceDeepSeek
+from erp_agent_graph.models.inbound_mail import InboundMail
 from erp_agent_graph.services.article_repository import ArticleRepository
 from erp_agent_graph.services.customer_repository import CustomerRepository
+from erp_agent_graph.services.mail_repository import MailRepository
 from erp_agent_graph.services.mailpit import MailpitService
 from erp_agent_graph.services.order_repository import OrderRepository
 from erp_agent_graph.state import PartialState
@@ -52,10 +54,12 @@ def main():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    llm_model = ChatDeepSeek(
-        model="deepseek-v4-pro",
-        temperature=0,
-        extra_body={"thinking": {"type": "disabled"}},
+    # Thinking mode refuses `temperature`, and refuses the forced tool_choice that
+    # LangChain sets for structured output: see SoftToolChoiceDeepSeek.
+    llm_model = SoftToolChoiceDeepSeek(
+        model="deepseek-flash",
+        extra_body={"thinking": {"type": "enabled"}},
+        reasoning_effort="medium",
     )
 
     with (
@@ -73,6 +77,7 @@ def main():
             order_repository=OrderRepository(checkpointer_pool),
         )
         mailpit_service = MailpitService(http_client)
+        mail_repository = MailRepository(checkpointer_pool)
 
         saver = PostgresSaver(checkpointer_pool)
 
@@ -81,7 +86,7 @@ def main():
         graph = builder.compile(saver)
 
         while True:
-            mark_all_unread(http_client)
+            # mark_all_unread(http_client)
 
             emails = mailpit_service.get_unread_emails()
 
@@ -89,6 +94,24 @@ def main():
                 body = mailpit_service.get_body(email.id)
 
                 email.body = body
+
+                # Claiming the email is also the guard against picking up a run that
+                # is already going, or one suspended on an interrupt waiting for a
+                # person: the register answers None and we move on.
+                claimed = mail_repository.claim(
+                    InboundMail(
+                        thread_id=email.id,
+                        status="processing",
+                        sender=email.sender,
+                        subject=email.subject,
+                        body=email.body,
+                        received_at=email.created_at,
+                    )
+                )
+
+                if claimed is None:
+                    logger.info("email %s already in the register, skipped", email.id)
+                    continue
 
                 graph.invoke(  # type: ignore
                     PartialState(email=email),

@@ -117,4 +117,36 @@ CREATE TABLE order_lines (
 CREATE INDEX order_lines_order_idx ON order_lines (order_id);
 CREATE INDEX order_lines_article_idx ON order_lines (article_code);
 
+-- Every email the agent has picked up, and nothing more.
+--
+-- The row is written once, when the dispatcher takes the email: it says "this one
+-- has been seen", so the same email is never processed twice and an email that
+-- dies mid-run still leaves a trace instead of an invisible orphan checkpoint.
+--
+-- What the graph then made of it is NOT copied here: `thread_id` is the LangGraph
+-- run, and the full step-by-step state is read back with get_state_history().
+-- Only `status` moves, to follow the row through its life.
+CREATE TABLE inbound_mails (
+    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    thread_id    text NOT NULL UNIQUE,
+
+    status       text NOT NULL DEFAULT 'pending'
+                 CHECK (status IN (
+                     'pending', 'processing', 'interrupted', 'discarded',
+                     'awaiting_review', 'completed', 'failed'
+                 )),
+
+    -- The email as it arrived, so the register still reads if the mailbox is emptied.
+    sender       text NOT NULL,
+    subject      text NOT NULL,
+    body         text NOT NULL,
+    received_at  timestamptz NOT NULL,
+
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- The queue the web app reads.
+CREATE INDEX inbound_mails_status_idx ON inbound_mails (status);
+
 COMMIT;

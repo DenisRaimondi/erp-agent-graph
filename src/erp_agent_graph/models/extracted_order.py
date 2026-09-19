@@ -8,11 +8,12 @@ from erp_agent_graph.models.extracted_order_line import ExtractedOrderLine
 
 class ExtractedOrder(BaseModel):
     customer_reference: str | None = Field(
+        default=None,
         description="Customer reference as you find in the email. "
         "It should be some sort of code or identifier, "
         "that customer use to refer that order "
-        "but is not always there. Please leave it blank if you can't find it. "
-        "example: OD20261012, PO-2311444"
+        "but is not always there. Please omit it if you can't find it. "
+        "example: OD20261012, PO-2311444",
     )
     shipping_address_id: int | None = Field(
         default=None,

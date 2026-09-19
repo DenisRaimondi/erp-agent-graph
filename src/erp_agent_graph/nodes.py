@@ -127,7 +127,14 @@ def extract_order(state: State, runtime: Runtime[Context]) -> dict:
         context=runtime.context,
     )
 
-    return {"extracted_order": agent_response["structured_response"]}
+    # With a free tool_choice nothing forces the model to call the structured
+    # output tool, so the key can be missing.
+    extracted_order = agent_response.get("structured_response")
+
+    if extracted_order is None:
+        raise ValueError(f"the model did not extract any order from email {email.id}")
+
+    return {"extracted_order": extracted_order}
 
 
 def confirm_customer(state: State, runtime: Runtime[Context]) -> dict:
