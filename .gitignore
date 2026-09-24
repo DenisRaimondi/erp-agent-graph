@@ -246,3 +246,7 @@ pip-selfcheck.json
 
 # Impostazioni locali di Claude Code
 .claude/
+
+# strumenti locali
+.langgraph_api/
+.playwright-mcp/
