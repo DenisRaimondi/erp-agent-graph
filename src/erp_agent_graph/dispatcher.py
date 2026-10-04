@@ -4,6 +4,7 @@ import time
 
 import httpx
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg import Connection
 from psycopg.rows import DictRow, dict_row
@@ -12,7 +13,7 @@ from psycopg_pool import ConnectionPool
 from erp_agent_graph.context import Context
 from erp_agent_graph.graph import builder
 from erp_agent_graph.llm import SoftToolChoiceDeepSeek
-from erp_agent_graph.models.inbound_mail import InboundMail
+from erp_agent_graph.models.inbound_mail import InboundMail, MailStatus
 from erp_agent_graph.services.article_repository import ArticleRepository
 from erp_agent_graph.services.customer_repository import CustomerRepository
 from erp_agent_graph.services.mail_repository import MailRepository
@@ -113,11 +114,23 @@ def main():
                     logger.info("email %s already in the register, skipped", email.id)
                     continue
 
-                graph.invoke(  # type: ignore
-                    PartialState(email=email),
-                    context=context,
-                    config={"configurable": {"thread_id": email.id}},
-                )
+                config: RunnableConfig = {"configurable": {"thread_id": email.id}}
+
+                # Only the run is guarded: a write that fails here must not be read as
+                # a run that failed.
+                try:
+                    result = graph.invoke(
+                        PartialState(email=email), context=context, config=config, version="v2"
+                    )
+                except Exception:
+                    logger.exception("email %s failed", email.id)
+                    mail_repository.update_status(email.id, "failed")
+                    continue
+
+                # The order path always stops on confirm_customer, so anything that ran to the
+                # end was thrown away by the classifier.
+                status: MailStatus = "interrupted" if result.interrupts else "discarded"
+                mail_repository.update_status(email.id, status)
 
             time.sleep(60)
 

@@ -123,7 +123,15 @@ def extract_order(state: State, runtime: Runtime[Context]) -> dict:
     orders_history_text = "\n".join([x.to_prompt() for x in orders_history])
 
     agent_response = agent.invoke(
-        {"messages": [HumanMessage(email.to_prompt()), SystemMessage(orders_history_text)]},
+        {
+            "messages": [
+                HumanMessage(email.to_prompt()),
+                # The history needs a caption: unlabelled, the model reads it as more
+                # of the email and copies it into the order when the email itself says
+                # little ("the order is attached").
+                HumanMessage(f"Past orders of this customer:\n{orders_history_text}"),
+            ]
+        },
         context=runtime.context,
     )
 
